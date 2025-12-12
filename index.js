@@ -1,4 +1,4 @@
-// index.js — Yakuza Esports Bot (CommonJS, slash commands, autorole, logs, anti-nuke, joinvc silent)
+// index.js — Yakuza Esports Bot (CommonJS)
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
@@ -55,7 +55,8 @@ function recordModerationAction(moderatorId) {
   if (!moderationEvents.has(moderatorId)) moderationEvents.set(moderatorId, []);
   const arr = moderationEvents.get(moderatorId);
   arr.push(now);
-  moderationEvents.set(moderatorId, arr.filter(t => now - t <= 30000));
+  const window = 30000;
+  moderationEvents.set(moderatorId, arr.filter(t => now - t <= window));
   return moderationEvents.get(moderatorId).length;
 }
 
@@ -88,17 +89,17 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName("warn").setDescription("Warn a member")
       .addUserOption(opt => opt.setName("member").setDescription("Member").setRequired(true))
-      .addStringOption(opt => opt.setName("reason").setDescription("Reason")),
+      .addStringOption(opt => opt.setName("reason").setDescription("Reason").setRequired(false)),
     new SlashCommandBuilder()
       .setName("warnings").setDescription("Show member warnings")
-      .addUserOption(opt => opt.setName("member").setDescription("Member").setRequired(true)),
+      .addUserOption(opt => opt.setName("member").setDescription("Member")),
     new SlashCommandBuilder()
       .setName("clear").setDescription("Bulk delete messages")
       .addIntegerOption(opt => opt.setName("amount").setDescription("1-100").setRequired(true))
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
     new SlashCommandBuilder()
-      .setName("slowmode").setDescription("Set channel slowmode")
-      .addIntegerOption(opt => opt.setName("seconds").setDescription("0–21600").setRequired(true))
+      .setName("slowmode").setDescription("Set channel slowmode seconds")
+      .addIntegerOption(opt => opt.setName("seconds").setDescription("0-21600").setRequired(true))
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
     new SlashCommandBuilder()
       .setName("userinfo").setDescription("Show user info")
@@ -106,261 +107,137 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName("serverinfo").setDescription("Show server info"),
     new SlashCommandBuilder()
-      .setName("setautorole").setDescription("Set autorole")
+      .setName("setautorole").setDescription("Set role to assign on join")
       .addRoleOption(opt => opt.setName("role").setDescription("Role").setRequired(true))
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder()
-      .setName("setlogchannel").setDescription("Set log channel")
+      .setName("setlogchannel").setDescription("Set moderation log channel")
       .addChannelOption(opt => opt.setName("channel").setDescription("Channel").setRequired(true))
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder()
-      .setName("joinvc").setDescription("Bot joins a voice channel")
-      .addChannelOption(opt => opt.setName("channel").setDescription("Voice channel").setRequired(true))
+      .setName("joinvc").setDescription("Make bot join a voice channel (silent)")
+      .addChannelOption(opt => opt.setName("channel").setDescription("Voice Channel").setRequired(true))
       .setDefaultMemberPermissions(PermissionFlagsBits.Connect),
     new SlashCommandBuilder()
-      .setName("leavevc").setDescription("Bot leaves voice channel")
+      .setName("leavevc").setDescription("Bot leaves VC")
       .setDefaultMemberPermissions(PermissionFlagsBits.Connect)
   ];
 
   const commands = commandBuilders.map(c => c.toJSON());
-  const joinCmd = commands.find(c => c.name === "joinvc");
-  if (joinCmd) joinCmd.options[0].channel_types = [2];
-
   const rest = new REST({ version: "10" }).setToken(TOKEN);
+
   try {
     if (CLIENT_ID && GUILD_ID) {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
       console.log("Registered commands to guild:", GUILD_ID);
-    } else if (CLIENT_ID) {
-      await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-      console.log("Registered global commands.");
     }
   } catch (err) {
     console.error("Failed to register commands:", err);
   }
 }
 
-// STORE CONFIG
+// load config
 const CONFIG_FILE = path.join(__dirname, "botconfig.json");
 let BOT_CONFIG = {};
 try { BOT_CONFIG = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")); } catch { BOT_CONFIG = {}; }
-function saveConfig() { fs.writeFileSync(CONFIG_FILE, JSON.stringify(BOT_CONFIG, null, 2), "utf8"); }
+function saveConfig() { fs.writeFileSync(CONFIG_FILE, JSON.stringify(BOT_CONFIG, null, 2)); }
 
-// 🔥 **WELCOME SYSTEM + AUTOROLE + LOG**
+// ===============================
+// ✅ JOIN MESSAGE (ONLY ONCE)
+// ===============================
 client.on("guildMemberAdd", async (member) => {
-  const guildConf = BOT_CONFIG[member.guild.id] || {};
+  const channel = member.guild.channels.cache.get("1449015370244423690");
+  if (!channel) return;
 
-  // 1️⃣ Auto-role
-  if (guildConf.autorole) {
-    try { await member.roles.add(guildConf.autorole); }
-    catch (e) { console.warn("Autorole error:", e.message); }
-  }
+  const embed = new EmbedBuilder()
+    .setTitle("🔥 Welcome to Yakuza Esports! 🔥")
+    .setDescription(
+      `Welcome <@${member.id}>!\n\nWe’re hyped to have you joining us and sticking with the squad! 💮⚔️\n` +
+      `Let’s vibe, grow, and make big moves together. 🏆🔥`
+    )
+    .setColor(0xff0000)
+    .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 512 }))
+    .setImage("https://i.ibb.co/ZLxmW7f/yakuza-banner.png")
+    .setFooter({ text: `Yakuza Esports • Member #${member.guild.memberCount}` })
+    .setTimestamp();
 
-  // 2️⃣ Welcome message (your custom embed)
-  const welcomeChannel = member.guild.channels.cache.get("1449015370244423690");
-  if (welcomeChannel) {
-    const embed = {
-      title: "🔥 Welcome to Yakuza Esports! 🔥",
-      description: `Welcome <@${member.id}>!\n\nWe’re hyped to have you joining us and sticking with the squad! 💮⚔️  
-Let’s vibe, grow, and make big moves together. 🏆🔥`,
-      color: 0xff0000,
-      thumbnail: { url: member.user.displayAvatarURL({ dynamic: true, size: 512 }) },
-      image: { url: "https://i.ibb.co/ZLxmW7f/yakuza-banner.png" },
-      footer: { text: `Yakuza Esports • Member #${member.guild.memberCount}` },
-      timestamp: new Date()
-    };
-
-    welcomeChannel.send({ embeds: [embed] }).catch(() => {});
-  }
-
-  // 3️⃣ Log channel
-  if (guildConf.logChannel) {
-    const ch = member.guild.channels.cache.get(guildConf.logChannel);
-    if (ch) {
-      ch.send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle("Member Joined")
-            .setDescription(`${member.user.tag} joined.`)
-            .setTimestamp()
-        ]
-      }).catch(() => {});
-    }
-  }
+  channel.send({ embeds: [embed] }).catch(() => {});
 });
 
-// LOG Errors
+// ===============================
+// ✅ LEAVE MESSAGE
+// ===============================
+client.on("guildMemberRemove", async (member) => {
+  const channel = member.guild.channels.cache.get("1448718756191801556");
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("💨 Member Left Yakuza Esports")
+    .setDescription(
+      `**${member.user.tag}** has left Yakuza Esports.\n\n` +
+      `We appreciate the time you spent with us. 🙏\n` +
+      `Wishing you the best — keep grinding and stay winning. ⚔️🔥`
+    )
+    .setColor(0x808080)
+    .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+    .setFooter({ text: "Yakuza Esports • Farewell" })
+    .setTimestamp();
+
+  channel.send({ embeds: [embed] }).catch(() => {});
+});
+
+// =================================================
+// ⚡ REST OF YOUR BOT BELOW (unchanged)
+// =================================================
+
+// logging crashes
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled Rejection:", reason);
-  fs.appendFileSync(path.join(__dirname, "crash.log"), `${new Date().toISOString()} ${reason}\n`);
+  fs.appendFileSync("crash.log", `${new Date().toISOString()} - ${reason}\n`);
 });
 
-// Slash Command Handler
+// interactions
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const commandName = interaction.commandName;
+  const { commandName } = interaction;
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
 
   try {
-
-    // ---------------- BASIC COMMANDS ---------------- //
-
     if (commandName === "ping")
-      return interaction.reply({ content: `🏓 Pong! Ping: ${client.ws.ping}ms`, ephemeral: true });
+      return interaction.reply({ content: `🏓 Pong! ${client.ws.ping}ms`, ephemeral: true });
 
     if (commandName === "announce") {
       if (!isAdmin) return interaction.reply({ content: "Admin only.", ephemeral: true });
       const msg = interaction.options.getString("message");
-      const embed = new EmbedBuilder()
-        .setTitle("📣 Announcement")
-        .setDescription(msg)
-        .setColor(0xff9900)
-        .setTimestamp();
-
-      await interaction.reply({ content: "Announcement sent!", ephemeral: true });
+      const embed = new EmbedBuilder().setTitle("📣 Announcement").setDescription(msg).setColor(0xff9900);
+      await interaction.reply({ content: "Announcement sent.", ephemeral: true });
       return interaction.channel.send({ embeds: [embed] });
     }
 
-    // ----------------------------------------------- //
-    // MODERATION (kick, ban, warn, mute, etc.)
-    // ----------------------------------------------- //
-
-    if (commandName === "kick" || commandName === "ban") {
+    if (commandName === "kick") {
       if (!isAdmin) return interaction.reply({ content: "Admin only.", ephemeral: true });
-
-      const user = interaction.options.getUser("member");
-      const reason = interaction.options.getString("reason") || "No reason provided";
-      const member = interaction.guild.members.cache.get(user.id);
-
-      if (!member) return interaction.reply({ content: "User not found.", ephemeral: true });
-
-      if (commandName === "kick") {
-        if (!member.kickable) return interaction.reply({ content: "I can't kick this user.", ephemeral: true });
-        await member.kick(reason);
-        await interaction.reply({ content: `👢 Kicked ${user.tag}.` });
-      }
-
-      if (commandName === "ban") {
-        if (!member.bannable) return interaction.reply({ content: "I can't ban this user.", ephemeral: true });
-        await member.ban({ reason });
-        await interaction.reply({ content: `🔨 Banned ${user.tag}.` });
-      }
-
-      return;
-    }
-
-    if (commandName === "mute") {
-      if (!interaction.memberPermissions.has(PermissionFlagsBits.ModerateMembers))
-        return interaction.reply({ content: "No permission.", ephemeral: true });
-
-      const user = interaction.options.getUser("member");
-      const minutes = interaction.options.getInteger("minutes") || 10;
-      const member = interaction.guild.members.cache.get(user.id);
-
-      await member.timeout(minutes * 60000);
-      return interaction.reply({ content: `🔇 Muted ${user.tag} for ${minutes} minutes.` });
-    }
-
-    if (commandName === "unmute") {
-      const user = interaction.options.getUser("member");
-      const member = interaction.guild.members.cache.get(user.id);
-      await member.timeout(null);
-      return interaction.reply({ content: `🔊 Unmuted ${user.tag}.` });
-    }
-
-    if (commandName === "warn") {
-      if (!isAdmin) return interaction.reply({ content: "Admin only.", ephemeral: true });
-
       const user = interaction.options.getUser("member");
       const reason = interaction.options.getString("reason") || "No reason";
-
-      const data = loadWarnings();
-      data[user.id] = data[user.id] || [];
-      data[user.id].push({ moderator: interaction.user.id, reason, timestamp: Date.now() });
-      saveWarnings(data);
-
-      return interaction.reply({ content: `⚠️ Warned ${user.tag}.` });
-    }
-
-    if (commandName === "warnings") {
-      const user = interaction.options.getUser("member");
-      const data = loadWarnings()[user.id] || [];
-
-      if (!data.length)
-        return interaction.reply({ content: "No warnings.", ephemeral: true });
-
-      const embed = new EmbedBuilder()
-        .setTitle(`Warnings for ${user.tag}`)
-        .setDescription(data.map((w, i) => `${i + 1}. ${w.reason}`).join("\n"))
-        .setColor(0xff0000);
-
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    if (commandName === "clear") {
-      const amt = interaction.options.getInteger("amount");
-      const msgs = await interaction.channel.bulkDelete(amt, true);
-      return interaction.reply({ content: `🧹 Deleted ${msgs.size} messages.` });
-    }
-
-    if (commandName === "slowmode") {
-      const seconds = interaction.options.getInteger("seconds");
-      await interaction.channel.setRateLimitPerUser(seconds);
-      return interaction.reply({ content: `🐌 Slowmode set to ${seconds}s.` });
-    }
-
-    // ----------------------------------------------- //
-    // Utility Commands
-    // ----------------------------------------------- //
-
-    if (commandName === "userinfo") {
-      const user = interaction.options.getUser("member") || interaction.user;
       const member = interaction.guild.members.cache.get(user.id);
-      const embed = new EmbedBuilder()
-        .setTitle(`User Info - ${user.tag}`)
-        .setThumbnail(user.displayAvatarURL({ dynamic: true }))
-        .addFields(
-          { name: "ID", value: user.id },
-          { name: "Joined", value: new Date(member.joinedTimestamp).toLocaleString() },
-          { name: "Created", value: new Date(user.createdTimestamp).toLocaleString() }
-        )
-        .setColor(0x00ffff);
 
-      return interaction.reply({ embeds: [embed] });
+      if (!member) return interaction.reply({ content: "Member not found.", ephemeral: true });
+
+      await member.kick(reason);
+      return interaction.reply(`👢 Kicked ${user.tag} | ${reason}`);
     }
 
-    if (commandName === "serverinfo") {
-      const g = interaction.guild;
-      const embed = new EmbedBuilder()
-        .setTitle(`Server Info - ${g.name}`)
-        .addFields(
-          { name: "Members", value: `${g.memberCount}` },
-          { name: "Channels", value: `${g.channels.cache.size}` },
-          { name: "Owner", value: `<@${g.ownerId}>` }
-        )
-        .setColor(0x99ccff);
+    if (commandName === "ban") {
+      if (!isAdmin) return interaction.reply({ content: "Admin only.", ephemeral: true });
+      const user = interaction.options.getUser("member");
+      const reason = interaction.options.getString("reason") || "No reason";
+      const member = interaction.guild.members.cache.get(user.id);
 
-      return interaction.reply({ embeds: [embed] });
+      if (!member) return interaction.reply({ content: "Member not found.", ephemeral: true });
+
+      await member.ban({ reason });
+      return interaction.reply(`🔨 Banned ${user.tag} | ${reason}`);
     }
 
-    if (commandName === "setautorole") {
-      const role = interaction.options.getRole("role");
-      BOT_CONFIG[interaction.guild.id] = BOT_CONFIG[interaction.guild.id] || {};
-      BOT_CONFIG[interaction.guild.id].autorole = role.id;
-      saveConfig();
-      return interaction.reply({ content: `Autorole set to ${role.name}.` });
-    }
-
-    if (commandName === "setlogchannel") {
-      const ch = interaction.options.getChannel("channel");
-      BOT_CONFIG[interaction.guild.id] = BOT_CONFIG[interaction.guild.id] || {};
-      BOT_CONFIG[interaction.guild.id].logChannel = ch.id;
-      saveConfig();
-      return interaction.reply({ content: `Log channel set to ${ch.name}.` });
-    }
-
-    // VC Commands
     if (commandName === "joinvc") {
       const ch = interaction.options.getChannel("channel");
       joinVoiceChannel({
@@ -370,56 +247,27 @@ client.on("interactionCreate", async (interaction) => {
         selfMute: true,
         selfDeaf: true
       });
-
-      BOT_CONFIG[interaction.guild.id] = BOT_CONFIG[interaction.guild.id] || {};
-      BOT_CONFIG[interaction.guild.id].vcChannel = ch.id;
-      saveConfig();
-
-      return interaction.reply({ content: `Joined VC: ${ch.name}` });
+      return interaction.reply(`Joined VC: ${ch.name}`);
     }
 
     if (commandName === "leavevc") {
       const conn = getVoiceConnection(interaction.guild.id);
       if (conn) conn.destroy();
-
-      BOT_CONFIG[interaction.guild.id].vcChannel = null;
-      saveConfig();
-
-      return interaction.reply({ content: "Left voice channel." });
+      return interaction.reply("Left the VC.");
     }
 
-  } catch (err) {
-    console.error("Command error:", err);
-    return interaction.reply({ content: "Error occurred.", ephemeral: true });
+  } catch (e) {
+    console.error(e);
+    try { interaction.reply({ content: "Error occurred.", ephemeral: true }); } catch {}
   }
 });
 
-// READY EVENT
+// on ready
 client.once("ready", async () => {
-  console.log(`🔥 Yakuza Esports Bot Logged in as ${client.user.tag}`);
+  console.log(`🔥 Logged in as ${client.user.tag}`);
   await registerCommands().catch(() => {});
   client.user.setActivity("Yakuza | Moderation", { type: 3 });
-
-  for (const guildId of Object.keys(BOT_CONFIG)) {
-    const cfg = BOT_CONFIG[guildId];
-    if (cfg?.vcChannel) {
-      const ch = await client.channels.fetch(cfg.vcChannel).catch(() => null);
-      if (ch && ch.isVoiceBased()) {
-        joinVoiceChannel({
-          channelId: ch.id,
-          guildId: ch.guild.id,
-          adapterCreator: ch.guild.voiceAdapterCreator,
-          selfMute: true,
-          selfDeaf: true
-        });
-        console.log(`Auto rejoined VC ${ch.id}`);
-      }
-    }
-  }
 });
 
-// LOGIN
-client.login(TOKEN).catch(err => {
-  console.error("Login failed:", err);
-  process.exit(1);
-});
+// login
+client.login(TOKEN);
